@@ -11,11 +11,21 @@ MYSQL_PASSWORD=$(ssm-get-parameter --parameter-name  /mysql/root/password)
 ```
 
 ## installation
-you can download a Linux or MacOS binary from [https://github.com/binxio/ssm-get-parameter/releases](https://github.com/binxio/ssm-get-parameter/releases).
-
 If you have golang installed, type:
 
 ```
 go get github.com/binxio/ssm-get-parameter
 ```
 
+## installation in Docker
+With Docker you can use the multi-stage build:
+
+```
+FROM binxio/ssm-get-parameter
+
+FROM alpine:3.6
+COPY --from=0 /ssm-get-parameter /usr/local/bin/
+```
+
+## download
+you can download a 64 bit Linux or MacOS binary from [https://github.com/binxio/ssm-get-parameter/releases](https://github.com/binxio/ssm-get-parameter/releases).
