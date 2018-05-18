@@ -25,8 +25,8 @@ clean:
 
 
 .git-release-$(VERSION): $(BINARIES)
-	set -e -o pipefail ; \
-	shasum -a256 $(BINARIES) | sed -e 's^dist/^^' | \
+	@set -e -o pipefail ; \
+	shasum -a256 $(BINARIES) | sed -e 's^dist/^^' -e 's/-$(VERSION)-/-/' | \
 	jq --raw-input --slurp \
 		--arg tag $(TAG) \
 		--arg release $(VERSION) \
@@ -44,7 +44,8 @@ clean:
 			$(GITHUB_API)/releases
 
 release: check-release .git-release-$(VERSION)
-	for BINARY in $(BINARIES); do \
+	@for BINARY in $(BINARIES); do \
+		echo "INFO: uploading $$BINARY.." ; \
 		curl --fail -sS \
 			 --data-binary @$$BINARY \
 			-o /dev/null \
@@ -53,7 +54,7 @@ release: check-release .git-release-$(VERSION)
 			-H 'Content-Type: application/octet-stream' \
 			$(GITHUB_UPLOAD)/releases/$(shell jq -r .id .git-release-$(VERSION))/assets?name=$$(basename $${BINARY} | sed -e 's/-$(VERSION)-/-/') ; \
 	done
-	curl --fail -sS \
+	@curl --fail -sS \
 		-d '{"draft": false}'  \
 		-o /dev/null \
 		-X PATCH \
