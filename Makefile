@@ -1,7 +1,11 @@
 include Makefile.mk
 
 BINARIES=dist/ssm-get-parameter-$(VERSION)-linux-amd64.zip dist/ssm-get-parameter-$(VERSION)-darwin-amd64.zip
-REPO_URL=https://api.github.com/repos/binxio/ssm-get-parameter
+ORGANIZATION=binxio
+NAME=ssm-get-parameter
+GITHUB_API=https://api.github.com/repos/$(ORGANIZATION)/$(NAME)
+GITHUB_UPLOAD=https://uploads.github.com/repos/$(ORGANIZATION)/$(NAME)
+
 
 build: $(BINARIES)
 
@@ -20,36 +24,40 @@ clean:
 
 
 
-.git-release-$(VERSION):
+.git-release-$(VERSION): $(BINARIES)
 	set -e -o pipefail ; \
-	jq \
-		-n \
+	shasum -a256 $(BINARIES) | sed -e 's^dist/^^' | \
+	jq --raw-input --slurp \
 		--arg tag $(TAG) \
 		--arg release $(VERSION) \
-		'{ "target_commitish": "master", "draft": true, "prerelease": false,  "tag_name": $$tag, "name": $$release, "body": ("release " + $$release) }' | \
-	tee /dev/tty | \
-	curl -s \
+		'{ "draft": true,  \
+                   "prerelease": false,   \
+                   "tag_name": $$tag,  \
+                   "name": $$tag,  \
+                   "body": ("release " + $$release + (split("\n") | join("\n") | ("\n```\n" + . + "```\n"))) }' | \
+	curl -sS --fail \
 			-d @- \
 			-o .git-release-$(VERSION) \
 			-H "Authorization: token $$GITHUB_API_TOKEN" \
 			-H 'Content-Type: application/json' \
-			$(REPO_URL)/releases
+			-X POST \
+			$(GITHUB_API)/releases
 
-release: .git-release-$(VERSION) $(BINARIES)
+release: .git-release-$(VERSION)
 	for BINARY in $(BINARIES); do \
-		curl -s \
+		curl --fail -sS \
 			 --data-binary @$$BINARY \
 			-o /dev/null \
 			-X POST \
 			-H "Authorization: token $$GITHUB_API_TOKEN" \
 			-H 'Content-Type: application/octet-stream' \
-			$(REPO_URL)/releases/$(shell jq -r .id .git-release-$(VERSION))/assets?name=$$(basename $${BINARY} | sed -e 's/-$(VERSION)-/-/') ; \
+			$(GITHUB_UPLOAD)/releases/$(shell jq -r .id .git-release-$(VERSION))/assets?name=$$(basename $${BINARY} | sed -e 's/-$(VERSION)-/-/') ; \
 	done
-	curl --fail --silent \
+	curl --fail -sS \
 		-d '{"draft": false}'  \
-		-X PATCH \
 		-o /dev/null \
+		-X PATCH \
 		-H "Authorization: token $$GITHUB_API_TOKEN" \
 		-H 'Content-Type: application/json-stream' \
-		$(REPO_URL)/releases/$(shell jq -r .id .git-release-$(VERSION))
+		$(GITHUB_API)/releases/$(shell jq -r .id .git-release-$(VERSION))
 	rm .git-release-$(VERSION)
