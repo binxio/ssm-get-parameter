@@ -43,7 +43,7 @@ clean:
 			-X POST \
 			$(GITHUB_API)/releases
 
-release: .git-release-$(VERSION)
+release: check-release .git-release-$(VERSION)
 	for BINARY in $(BINARIES); do \
 		curl --fail -sS \
 			 --data-binary @$$BINARY \
