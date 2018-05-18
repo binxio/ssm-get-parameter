@@ -13,12 +13,65 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 #
-SHELL=/bin/bash
+REGISTRY_HOST=docker.io
+USERNAME=$(USER)
+NAME=$(shell basename $(PWD))
+
 RELEASE_SUPPORT := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/.make-release-support
+IMAGE=$(REGISTRY_HOST)/$(USERNAME)/$(NAME)
+
 VERSION=$(shell . $(RELEASE_SUPPORT) ; getVersion)
 TAG=$(shell . $(RELEASE_SUPPORT); getTag)
 
-default: build
+SHELL=/bin/bash
+
+.PHONY: pre-build docker-build post-build build release patch-release minor-release major-release tag check-status check-release showver \
+	push pre-push do-push post-push
+
+build: pre-build docker-build post-build
+
+pre-build:
+
+
+post-build:
+
+
+pre-push:
+
+
+post-push:
+
+
+
+docker-build: .release
+	docker build $(DOCKER_BUILD_ARGS) -t $(IMAGE):$(VERSION) .
+	@DOCKER_MAJOR=$(shell docker -v | sed -e 's/.*version //' -e 's/,.*//' | cut -d\. -f1) ; \
+	DOCKER_MINOR=$(shell docker -v | sed -e 's/.*version //' -e 's/,.*//' | cut -d\. -f2) ; \
+	if [ $$DOCKER_MAJOR -eq 1 ] && [ $$DOCKER_MINOR -lt 10 ] ; then \
+		echo docker tag -f $(IMAGE):$(VERSION) $(IMAGE):latest ;\
+		docker tag -f $(IMAGE):$(VERSION) $(IMAGE):latest ;\
+	else \
+		echo docker tag $(IMAGE):$(VERSION) $(IMAGE):latest ;\
+		docker tag $(IMAGE):$(VERSION) $(IMAGE):latest ; \
+	fi
+
+.release:
+	@echo "release=0.0.0" > .release
+	@echo "tag=$(NAME)-0.0.0" >> .release
+	@echo INFO: .release created
+	@cat .release
+
+
+release: check-status check-release build push
+
+
+push: pre-push do-push post-push 
+
+do-push: 
+	docker push $(IMAGE):$(VERSION)
+	docker push $(IMAGE):latest
+
+snapshot: build push
 
 showver: .release
 	@. $(RELEASE_SUPPORT); getVersion

@@ -1,20 +1,20 @@
 include Makefile.mk
 
 BINARIES=dist/ssm-get-parameter-$(VERSION)-linux-amd64.zip dist/ssm-get-parameter-$(VERSION)-darwin-amd64.zip
-ORGANIZATION=binxio
+USERNAME=binxio
 NAME=ssm-get-parameter
-GITHUB_API=https://api.github.com/repos/$(ORGANIZATION)/$(NAME)
-GITHUB_UPLOAD=https://uploads.github.com/repos/$(ORGANIZATION)/$(NAME)
+GITHUB_API=https://api.github.com/repos/$(USERNAME)/$(NAME)
+GITHUB_UPLOAD=https://uploads.github.com/repos/$(USERNAME)/$(NAME)
 
 
-build: $(BINARIES)
+pre-build: $(BINARIES)
 
-dist/ssm-get-parameter-$(VERSION)-linux-amd64.zip: main.go
+dist/ssm-get-parameter-$(VERSION)-linux-amd64.zip: main.go vendor/vendor.json
 	mkdir -p dist
 	GOOS=linux GOARCH=amd64 go build -o dist/ssm-get-parameter main.go
 	cd dist && zip ../dist/ssm-get-parameter-$(VERSION)-linux-amd64.zip ssm-get-parameter  && rm ssm-get-parameter
 
-dist/ssm-get-parameter-$(VERSION)-darwin-amd64.zip: main.go
+dist/ssm-get-parameter-$(VERSION)-darwin-amd64.zip: main.go vendor/vendor.json
 	mkdir -p dist
 	GOOS=darwin GOARCH=amd64 go build -o dist/ssm-get-parameter main.go
 	cd dist && zip ../dist/ssm-get-parameter-$(VERSION)-darwin-amd64.zip ssm-get-parameter  && rm ssm-get-parameter
