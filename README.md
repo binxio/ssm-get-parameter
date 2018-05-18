@@ -1,5 +1,5 @@
 # ssm-get-parameter
-The simple utility can be used in docker entrypoint scripts to obtain parameters and secrets from the AWS Parameter store. The program takes one option `--parameter-name` which is the name of parameter to get the value from. For example:
+The simple utility can be used to obtain parameters and secrets from the AWS Parameter store. The program takes one option `--parameter-name` which is the name of parameter to get the value from. For example:
 
 ```
 	ssm-get-parameter --parameter-name  /mysql/root/password
