@@ -2,4 +2,4 @@
 build:
   stage: build
   script:
-    - make IMAGE=${REGISTRY_HOST:-docker.io} snapshot
+    - make REGISTRY_HOST=${REGISTRY_HOST:-docker.io} snapshot
