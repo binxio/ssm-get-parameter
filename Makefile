@@ -7,8 +7,6 @@ GITHUB_API=https://api.github.com/repos/$(USERNAME)/$(NAME)
 GITHUB_UPLOAD=https://uploads.github.com/repos/$(USERNAME)/$(NAME)
 
 
-pre-build: $(BINARIES)
-
 dist/ssm-get-parameter-$(VERSION)-linux-amd64.zip: main.go vendor/vendor.json
 	mkdir -p dist
 	GOOS=linux GOARCH=amd64 go build -o dist/ssm-get-parameter main.go
