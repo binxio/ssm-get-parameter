@@ -2,4 +2,4 @@
 build:
   stage: build
   script:
-    - make IMAGE=${IMAGE:-docker.io/binxio/ssm-get-parameter} snapshot
+    - make IMAGE=${REGISTRY_HOST:-docker.io} snapshot
