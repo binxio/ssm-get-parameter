@@ -1,13 +1,51 @@
 # ssm-get-parameter
-The simple utility can be used to obtain parameters and secrets from the AWS Parameter store. The program takes one option `--parameter-name` which is the name of parameter to get the value from. For example:
+The simple utility can be used the configure the environment of an application with values from the AWS SSM Parameter store.
+
+## How does it work?
+It is simple. Specify one or more environment variables with a URI of the ssm: protocol, as follows:
 
 ```
-	ssm-get-parameter --parameter-name  /mysql/root/password
+export MYSQL_PASSWORD=ssm:///mysql/root/password
+ssm-get-parameter bash -c 'echo $MYSQL_PASSWORD'
 ```
-it writes the value of the parameter to stdout, so you can use it anyway you like. For instance,
+the utility will lookup the value of `/mysql/root/password` in the SSM parameter store and replace the environment variable.
+The program on the command line will be exec'ed with MYSQL_PASSWORD set to the actual value.
 
+## Query parameters
+The utility supports the following query parameters:
+
+- default - value if the value could not be retrieved from the parameter store.
+- destination - the filename to write the value to. 
+
+For example:
 ```
-MYSQL_PASSWORD=$(ssm-get-parameter --parameter-name  /mysql/root/password)
+$ export ORACLE_PASSWORD=ssm:///oracle/scott/password?default=tiger&destination=/tmp/password
+$ ssm-get-parameter bash -c 'echo $ORACLE_PASSWORD'
+tiger
+$ cat /tmp/password
+tiger
+```
+
+## Environment substitution
+The URI may contain an environment variable reference. For example:
+```
+$ export ENV=dev
+$ export 'PASSWORD=ssm:///${ENV}/mysql/root/password'
+ssm-get-parameter bash -c 'echo $PASSWORD'
+```
+will print out the value of `/dev/mysql/root/password`.
+
+## Dockerfile usage
+To idiomatic way to use the utility is as follows:
+```
+FROM binxio/ssm-get-parameter
+
+FROM alpine:3.6
+COPY --from=0 /ssm-get-parameter /usr/local/bin/
+
+ENV PGPASSWORD=ssm:///postgres/root/password
+ENTRYPOINT [ "/usr/local/bin/ssm-get-parameter"]
+CMD [ "/bin/bash", "-c", "echo $PGPASSWORD"]
 ```
 
 ## installation

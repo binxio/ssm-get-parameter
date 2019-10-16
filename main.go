@@ -15,36 +15,179 @@
 package main
 
 import (
+	"flag"
+	"fmt"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ssm"
-	"flag"
-	"github.com/aws/aws-sdk-go/aws"
-	"fmt"
+	"log"
+	"net/url"
 	"os"
+	"os/exec"
+	"strings"
+	"syscall"
 )
 
 func main() {
-	withDecryption := true
-	name := flag.String("parameter-name", "", "the name of the parameter")
+	var name string
+	flag.StringVar(&name, "parameter-name", "", "of the parameter (deprecated)")
+	flag.StringVar(&name, "name", "", "of the parameter")
 	flag.Parse()
-
-	if *name == "" {
-		fmt.Fprintf(os.Stderr,"ERROR: missing option --parameter-name\n")
-		os.Exit(1)
+	if name != "" {
+		getParameter(name)
+	} else {
+		if len(os.Args) <= 1 {
+			log.Fatalf("ERROR: expected --name or a command to run")
+		}
+		execProcess(os.Args[1:])
 	}
-	session, err := session.NewSession(aws.NewConfig())
+}
+
+type SSMParameterRef struct {
+	name           *string // of the environment variable
+	parameter_name *string // in the parameter store
+	default_value  *string // if one is specified
+	destination    *string // to write the value to, otherwise ""
+}
+
+// converts the environment variables in `environ` into a list of SSM parameter references.
+func environmentToSSMParameterReferences(environ []string) ([]SSMParameterRef, error) {
+	result := make([]SSMParameterRef, 0, 10)
+	for i := 0; i < len(environ); i++ {
+		name, value := toNameValue(environ[i])
+		if strings.HasPrefix(value, "ssm:") {
+			value := os.ExpandEnv(value)
+			uri, err := url.Parse(value)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse environment variable %s, %s", name, err)
+			}
+			if uri.Host != "" {
+				return nil, fmt.Errorf("environment variable %s has an ssm: uri, but specified a host. add a /.", name)
+			}
+			values, err := url.ParseQuery(uri.RawQuery)
+			if err != nil {
+				return nil, fmt.Errorf("environment variable %s has an invalid query syntax, %s", name, err)
+			}
+			defaultValue := values.Get("default")
+			destination := values.Get("destination")
+			result = append(result, SSMParameterRef{&name, &uri.Path, &defaultValue, &destination})
+		}
+	}
+	return result, nil
+}
+
+// retrieve all the parameter store values from refs and return the result as a name-value map.
+func ssmParameterReferencesToEnvironment(refs []SSMParameterRef) (map[string]string, error) {
+	result := make(map[string]string)
+	withDecryption := true
+	service := ssm.New(getSession())
+	for _, ref := range refs {
+		result[*ref.name] = *ref.default_value
+		request := ssm.GetParameterInput{Name: ref.parameter_name, WithDecryption: &withDecryption}
+		response, err := service.GetParameter(&request)
+		if err == nil {
+			result[*ref.name] = *response.Parameter.Value
+		} else {
+			if *ref.default_value != "" {
+				log.Printf("WARN: failed to get parameter %s using default value, %s\n", *ref.parameter_name, err)
+			} else {
+				return nil, fmt.Errorf("ERROR: failed to get parameter %s, %s\n", *ref.parameter_name, err)
+			}
+		}
+	}
+	return result, nil
+}
+
+
+// create a new environment from `env` with new values from `newEnv`
+func updateEnvironment(env []string, newEnv map[string]string) []string {
+	result := make([]string, 0, len(env))
+	for i := 0; i < len(env); i++ {
+		name, _ := toNameValue(env[i])
+		if newValue, ok := newEnv[name]; ok {
+			result = append(result, fmt.Sprintf("%s=%s", name, newValue))
+		} else {
+			result = append(result, env[i])
+		}
+	}
+	return result
+}
+
+// write the value of each reference to the specified destination file
+func writeParameterValues(refs []SSMParameterRef, env map[string]string) error {
+	for _, ref := range refs {
+		if *ref.destination != "" {
+			f, err := os.Create(*ref.destination)
+			if err != nil {
+				return fmt.Errorf("failed to open file %s to write to, %s", *ref.destination, err)
+			}
+			_, err = f.WriteString(env[*ref.name])
+			if err != nil {
+				return fmt.Errorf("failed to write to file %s, %s", *ref.destination, err)
+			}
+			err = f.Close()
+			if err != nil {
+				return fmt.Errorf("failed to close file %s, %s", *ref.destination, err)
+			}
+		}
+	}
+	return nil
+}
+
+// execute the `cmd` with the environment set to actual values from the parameter store
+func execProcess(cmd []string) {
+	program, err := exec.LookPath(cmd[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr,"ERROR: failed to create new session %s\n", err)
-		os.Exit(1)
+		log.Fatalf("could not find program %s on path, %s", cmd[0], err)
 	}
 
-	service := ssm.New(session)
-	request := ssm.GetParameterInput{Name: name, WithDecryption: &withDecryption}
+	refs, err := environmentToSSMParameterReferences(os.Environ())
+	if err != nil {
+		log.Fatal(err)
+	}
+	newEnv, err := ssmParameterReferencesToEnvironment(refs)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = writeParameterValues(refs, newEnv)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = syscall.Exec(program, cmd, updateEnvironment(os.Environ(), newEnv))
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+// write the value of the parameter `name` to stdout.
+func getParameter(name string) {
+	withDecryption := true
+	service := ssm.New(getSession())
+	request := ssm.GetParameterInput{Name: &name, WithDecryption: &withDecryption}
 	response, err := service.GetParameter(&request)
 	if err != nil {
-		fmt.Fprintf(os.Stderr,"ERROR: failed to get parameter, %s\n", err)
-		os.Exit(1)
+		log.Fatalf("ERROR: failed to get parameter, %s\n", err)
 	}
-
-	fmt.Printf("%s", *response.Parameter.Value)
+	_, err = fmt.Printf("%s", *response.Parameter.Value)
+	if err != nil {
+		log.Fatalf("ERROR: failed to write value, %s\n", err)
+	}
 }
+
+// get a new AWS Session
+func getSession() *session.Session {
+	session, err := session.NewSession(aws.NewConfig())
+	if err != nil {
+		log.Fatalf("ERROR: failed to create new session %s\n", err)
+	}
+	return session
+}
+
+// get the name and variable of a environment entry in the form of <name>=<value>
+func toNameValue(envEntry string) (string, string) {
+	result := strings.SplitN(envEntry, "=", 2)
+	return result[0], result[1]
+}
+
