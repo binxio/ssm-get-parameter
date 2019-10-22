@@ -9,13 +9,17 @@ export MYSQL_PASSWORD=ssm:///mysql/root/password
 ssm-get-parameter bash -c 'echo $MYSQL_PASSWORD'
 ```
 the utility will lookup the value of `/mysql/root/password` in the SSM parameter store and replace the environment variable.
-The program on the command line will be exec'ed with MYSQL_PASSWORD set to the actual value.
+The program on the command line will be exec'ed with MYSQL\_PASSWORD set to the actual value.
 
 ## Query parameters
 The utility supports the following query parameters:
 
 - default - value if the value could not be retrieved from the parameter store.
 - destination - the filename to write the value to. value replaced with file: url.
+
+If no default nor destination is specified and the parameter is not found, the utility will return an error.
+If a default is specified and the parameter is not found, the utility will use the default.
+If a destination file exists and no default is specified, the file will be read as the default value.
 
 For example:
 ```

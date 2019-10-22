@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ssm"
+	"io/ioutil"
 	"log"
 	"net/url"
 	"os"
@@ -76,6 +77,22 @@ func environmentToSSMParameterReferences(environ []string) ([]SSMParameterRef, e
 	return result, nil
 }
 
+// get the default value for the parameter
+func getDefaultValue(ref *SSMParameterRef) (string, error) {
+	if *ref.default_value != "" {
+		return *ref.default_value, nil
+	}
+
+	if *ref.destination != "" {
+		content, err := ioutil.ReadFile(*ref.destination)
+		if err == nil {
+			return string(content), nil
+		}
+		return "", fmt.Errorf("destination file does not exist to provide default value")
+	}
+	return "", fmt.Errorf("no default value available")
+}
+
 // retrieve all the parameter store values from refs and return the result as a name-value map.
 func ssmParameterReferencesToEnvironment(refs []SSMParameterRef) (map[string]string, error) {
 	result := make(map[string]string)
@@ -88,11 +105,12 @@ func ssmParameterReferencesToEnvironment(refs []SSMParameterRef) (map[string]str
 		if err == nil {
 			result[*ref.name] = *response.Parameter.Value
 		} else {
-			if *ref.default_value != "" {
-				log.Printf("WARN: failed to get parameter %s using default value, %s\n", *ref.parameter_name, err)
-			} else {
-				return nil, fmt.Errorf("ERROR: failed to get parameter %s, %s\n", *ref.parameter_name, err)
+			msg := fmt.Sprintf("failed to get parameter %s, %s", *ref.name, err)
+			value, err := getDefaultValue(&ref)
+			if err != nil {
+				return nil, fmt.Errorf("ERROR: %s, %s\n", msg, err)
 			}
+			result[*ref.name] = value
 		}
 	}
 	return result, nil
