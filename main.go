@@ -98,7 +98,6 @@ func ssmParameterReferencesToEnvironment(refs []SSMParameterRef) (map[string]str
 	return result, nil
 }
 
-
 // create a new environment from `env` with new values from `newEnv`
 func updateEnvironment(env []string, newEnv map[string]string) []string {
 	result := make([]string, 0, len(env))
@@ -133,6 +132,14 @@ func writeParameterValues(refs []SSMParameterRef, env map[string]string) error {
 	}
 	return nil
 }
+func replaceDestinationReferencesWithURL(refs []SSMParameterRef, env map[string]string) map[string]string {
+	for _, ref := range refs {
+		if *ref.destination != "" {
+			env[*ref.name] = fmt.Sprintf("file://%s", *ref.destination)
+		}
+	}
+	return env
+}
 
 // execute the `cmd` with the environment set to actual values from the parameter store
 func execProcess(cmd []string) {
@@ -154,6 +161,8 @@ func execProcess(cmd []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	newEnv = replaceDestinationReferencesWithURL(refs, newEnv)
 
 	err = syscall.Exec(program, cmd, updateEnvironment(os.Environ(), newEnv))
 	if err != nil {
@@ -190,4 +199,3 @@ func toNameValue(envEntry string) (string, string) {
 	result := strings.SplitN(envEntry, "=", 2)
 	return result[0], result[1]
 }
-
