@@ -15,13 +15,13 @@ The program on the command line will be exec'ed with MYSQL_PASSWORD set to the a
 The utility supports the following query parameters:
 
 - default - value if the value could not be retrieved from the parameter store.
-- destination - the filename to write the value to. 
+- destination - the filename to write the value to. value replaced with file: url.
 
 For example:
 ```
 $ export ORACLE_PASSWORD=ssm:///oracle/scott/password?default=tiger&destination=/tmp/password
 $ ssm-get-parameter bash -c 'echo $ORACLE_PASSWORD'
-tiger
+file:///tmp/password
 $ cat /tmp/password
 tiger
 ```
