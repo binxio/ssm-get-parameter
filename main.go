@@ -123,7 +123,7 @@ func ssmParameterReferencesToEnvironment(refs []SSMParameterRef) (map[string]str
 			if err != nil {
 				return nil, fmt.Errorf("ERROR: %s, %s\n", msg, err)
 			}
-			result[*ref.name] = formatValue(&ref, &value)
+			result[*ref.name] = value
 		}
 	}
 	return result, nil
