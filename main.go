@@ -75,16 +75,15 @@ func environmentToSSMParameterReferences(environ []string) ([]SSMParameterRef, e
 
 			defaultValue := values.Get("default")
 			destination := values.Get("destination")
-			template := template.New("secret")
-			template, _ = template.Parse("{{.}}")
+			var tpl *template.Template
 			if values.Get("template") != "" {
-				template, err = template.Parse(values.Get("template"))
+				tpl, err = template.New("secret").Parse(values.Get("template"))
 				if err != nil {
 					return nil, fmt.Errorf("environment variable %s has an invalid template syntax, %s", name, err)
 				}
 			}
 			result = append(result, SSMParameterRef{&name, &uri.Path,
-				&defaultValue, &destination, template})
+				&defaultValue, &destination, tpl})
 		}
 	}
 	return result, nil
@@ -93,6 +92,9 @@ func environmentToSSMParameterReferences(environ []string) ([]SSMParameterRef, e
 // get the default value for the parameter
 func getDefaultValue(ref *SSMParameterRef) (string, error) {
 	if *ref.default_value != "" {
+		if ref.template != nil {
+			return formatValue(ref, ref.default_value), nil
+		}
 		return *ref.default_value, nil
 	}
 
@@ -131,6 +133,10 @@ func ssmParameterReferencesToEnvironment(refs []SSMParameterRef) (map[string]str
 
 func formatValue(ref *SSMParameterRef, value *string) string {
 	var writer bytes.Buffer
+	if ref.template == nil {
+		return *value
+	}
+
 	if err := ref.template.Execute(&writer, value); err != nil {
 		log.Fatalf("failed to format value of '%s' with template", *ref.name)
 	}
