@@ -15,6 +15,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
@@ -27,6 +28,7 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+	template "text/template"
 )
 
 func main() {
@@ -45,10 +47,11 @@ func main() {
 }
 
 type SSMParameterRef struct {
-	name           *string // of the environment variable
-	parameter_name *string // in the parameter store
-	default_value  *string // if one is specified
-	destination    *string // to write the value to, otherwise ""
+	name           *string            // of the environment variable
+	parameter_name *string            // in the parameter store
+	default_value  *string            // if one is specified
+	destination    *string            // to write the value to, otherwise ""
+	template       *template.Template // to use, defaults to '{{.}}'
 }
 
 // converts the environment variables in `environ` into a list of SSM parameter references.
@@ -69,9 +72,19 @@ func environmentToSSMParameterReferences(environ []string) ([]SSMParameterRef, e
 			if err != nil {
 				return nil, fmt.Errorf("environment variable %s has an invalid query syntax, %s", name, err)
 			}
+
 			defaultValue := values.Get("default")
 			destination := values.Get("destination")
-			result = append(result, SSMParameterRef{&name, &uri.Path, &defaultValue, &destination})
+			template := template.New("secret")
+			template, _ = template.Parse("{{.}}")
+			if values.Get("template") != "" {
+				template, err = template.Parse(values.Get("template"))
+				if err != nil {
+					return nil, fmt.Errorf("environment variable %s has an invalid template syntax, %s", name, err)
+				}
+			}
+			result = append(result, SSMParameterRef{&name, &uri.Path,
+				&defaultValue, &destination, template})
 		}
 	}
 	return result, nil
@@ -103,17 +116,25 @@ func ssmParameterReferencesToEnvironment(refs []SSMParameterRef) (map[string]str
 		request := ssm.GetParameterInput{Name: ref.parameter_name, WithDecryption: &withDecryption}
 		response, err := service.GetParameter(&request)
 		if err == nil {
-			result[*ref.name] = *response.Parameter.Value
+			result[*ref.name] = formatValue(&ref, response.Parameter.Value)
 		} else {
 			msg := fmt.Sprintf("failed to get parameter %s, %s", *ref.name, err)
 			value, err := getDefaultValue(&ref)
 			if err != nil {
 				return nil, fmt.Errorf("ERROR: %s, %s\n", msg, err)
 			}
-			result[*ref.name] = value
+			result[*ref.name] = formatValue(&ref, &value)
 		}
 	}
 	return result, nil
+}
+
+func formatValue(ref *SSMParameterRef, value *string) string {
+	var writer bytes.Buffer
+	if err := ref.template.Execute(&writer, value); err != nil {
+		log.Fatalf("failed to format value of '%s' with template", *ref.name)
+	}
+	return writer.String()
 }
 
 // create a new environment from `env` with new values from `newEnv`
@@ -153,7 +174,7 @@ func writeParameterValues(refs []SSMParameterRef, env map[string]string) error {
 func replaceDestinationReferencesWithURL(refs []SSMParameterRef, env map[string]string) map[string]string {
 	for _, ref := range refs {
 		if *ref.destination != "" {
-			env[*ref.name] = fmt.Sprintf("file://%s", *ref.destination)
+			env[*ref.name] = fmt.Sprintf("%s", *ref.destination)
 		}
 	}
 	return env

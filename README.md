@@ -16,6 +16,7 @@ The utility supports the following query parameters:
 
 - default - value if the value could not be retrieved from the parameter store.
 - destination - the filename to write the value to. value replaced with file: url.
+- template - the template to use for writing the value, defaults to '{{.}}'
 
 If no default nor destination is specified and the parameter is not found, the utility will return an error.
 If a default is specified and the parameter is not found, the utility will use the default.
@@ -25,9 +26,17 @@ For example:
 ```
 $ export ORACLE_PASSWORD=ssm:///oracle/scott/password?default=tiger&destination=/tmp/password
 $ ssm-get-parameter bash -c 'echo $ORACLE_PASSWORD'
-file:///tmp/password
+/tmp/password
 $ cat /tmp/password
 tiger
+```
+
+## template formatting
+To format the secret, you can use the `template` query parameter. For example:
+```
+$ export PGPASSFILE=ssm:///postgres/kong/password?template='localhost:5432:kong:kong:{{.}}%0A&destination=$HOME/.pgpass'
+$ ssm-get-parameter bash -c 'cat $PGPASSFILE'
+localhost:5432:kong:kong:@CypJqmqZ@TYQ2GDnUD@MQGuKyhrl!
 ```
 
 ## Environment substitution
