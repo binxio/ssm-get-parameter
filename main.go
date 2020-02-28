@@ -19,7 +19,6 @@ import (
 	"flag"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ssm"
 	"io/ioutil"
@@ -29,13 +28,16 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
-	template "text/template"
+	"text/template"
 )
+
+var verbose bool
 
 func main() {
 	var name string
 	flag.StringVar(&name, "parameter-name", "", "of the parameter (deprecated)")
 	flag.StringVar(&name, "name", "", "of the parameter")
+	flag.BoolVar(&verbose, "verbose", false, "get debug output")
 	flag.Parse()
 	if name != "" {
 		getParameter(name)
@@ -43,7 +45,7 @@ func main() {
 		if len(os.Args) <= 1 {
 			log.Fatalf("ERROR: expected --name or a command to run")
 		}
-		execProcess(os.Args[1:])
+		execProcess(flag.Args())
 	}
 }
 
@@ -122,16 +124,14 @@ func ssmParameterReferencesToEnvironment(refs []SSMParameterRef) (map[string]str
 			result[*ref.name] = formatValue(&ref, response.Parameter.Value)
 		} else {
 			msg := fmt.Sprintf("failed to get parameter %s, %s", *ref.name, err)
-			ssmError, ok := err.(awserr.Error)
-			if ok && ssmError.Code() == ssm.ErrCodeParameterNotFound {
-				value, err := getDefaultValue(&ref)
-				if err != nil {
-					return nil, fmt.Errorf("ERROR: %s, %s\n", msg, err)
-				}
-				result[*ref.name] = value
-			} else {
-				return nil, fmt.Errorf("ERROR: %s\n", msg)
+			if verbose {
+				log.Printf("WARNING: %s", msg)
 			}
+			value, err := getDefaultValue(&ref)
+			if err != nil {
+				return nil, fmt.Errorf("ERROR: %s, %s\n", msg, err)
+			}
+			result[*ref.name] = value
 		}
 
 	}
