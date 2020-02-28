@@ -19,6 +19,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ssm"
 	"io/ioutil"
@@ -121,12 +122,18 @@ func ssmParameterReferencesToEnvironment(refs []SSMParameterRef) (map[string]str
 			result[*ref.name] = formatValue(&ref, response.Parameter.Value)
 		} else {
 			msg := fmt.Sprintf("failed to get parameter %s, %s", *ref.name, err)
-			value, err := getDefaultValue(&ref)
-			if err != nil {
-				return nil, fmt.Errorf("ERROR: %s, %s\n", msg, err)
+			ssmError, ok := err.(awserr.Error)
+			if ok && ssmError.Code() == ssm.ErrCodeParameterNotFound {
+				value, err := getDefaultValue(&ref)
+				if err != nil {
+					return nil, fmt.Errorf("ERROR: %s, %s\n", msg, err)
+				}
+				result[*ref.name] = value
+			} else {
+				return nil, fmt.Errorf("ERROR: %s\n", msg)
 			}
-			result[*ref.name] = value
 		}
+
 	}
 	return result, nil
 }
