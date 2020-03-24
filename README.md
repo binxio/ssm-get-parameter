@@ -16,6 +16,7 @@ The utility supports the following query parameters:
 
 - default - value if the value could not be retrieved from the parameter store.
 - destination - the filename to write the value to. value replaced with file: url.
+- chmod - file permissions of the destination, left to default if not specified. recommended 0600.
 - template - the template to use for writing the value, defaults to '{{.}}'
 
 If no default nor destination is specified and the parameter is not found, the utility will return an error.

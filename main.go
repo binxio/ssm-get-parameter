@@ -29,6 +29,7 @@ import (
 	"strings"
 	"syscall"
 	"text/template"
+	"strconv"
 )
 
 var verbose bool
@@ -54,6 +55,7 @@ type SSMParameterRef struct {
 	parameter_name *string            // in the parameter store
 	default_value  *string            // if one is specified
 	destination    *string            // to write the value to, otherwise ""
+    fileMode       os.FileMode        // file permissions
 	template       *template.Template // to use, defaults to '{{.}}'
 }
 
@@ -85,8 +87,17 @@ func environmentToSSMParameterReferences(environ []string) ([]SSMParameterRef, e
 					return nil, fmt.Errorf("environment variable %s has an invalid template syntax, %s", name, err)
 				}
 			}
+			var fileMode os.FileMode
+			chmod := values.Get("chmod")
+			if chmod != "" {
+                if mode, err := strconv.ParseUint(chmod, 8, 32);  err != nil {
+                    return nil, fmt.Errorf("chmod '%s' is not valid, %s", chmod, err)
+                } else {
+                    fileMode = os.FileMode(mode)
+                }
+			}
 			result = append(result, SSMParameterRef{&name, &uri.Path,
-				&defaultValue, &destination, tpl})
+				&defaultValue, &destination, os.FileMode(fileMode), tpl})
 		}
 	}
 	return result, nil
@@ -179,6 +190,13 @@ func writeParameterValues(refs []SSMParameterRef, env map[string]string) error {
 			err = f.Close()
 			if err != nil {
 				return fmt.Errorf("failed to close file %s, %s", *ref.destination, err)
+			}
+
+			if ref.fileMode != 0 {
+			    err := os.Chmod(*ref.destination, ref.fileMode)
+			    if err != nil {
+			        return fmt.Errorf("failed to chmod file %s to %s, %s", *ref.destination, ref.fileMode, err)
+			    }
 			}
 		}
 	}
