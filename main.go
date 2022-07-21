@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"github.com/aws/aws-sdk-go/aws"
+	// "github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ssm"
 	"io/ioutil"
@@ -257,7 +257,9 @@ func getParameter(name string) {
 
 // get a new AWS Session
 func getSession() *session.Session {
-	session, err := session.NewSession(aws.NewConfig())
+	session, err := session.NewSessionWithOptions(session.Options{
+        SharedConfigState: session.SharedConfigEnable, // Must be set to enable
+    })
 	if err != nil {
 		log.Fatalf("ERROR: failed to create new session %s\n", err)
 	}
