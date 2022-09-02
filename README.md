@@ -59,7 +59,7 @@ COPY --from=0 /ssm-get-parameter /usr/local/bin/
 
 ENV PGPASSWORD=ssm:///postgres/root/password
 ENTRYPOINT [ "/usr/local/bin/ssm-get-parameter"]
-CMD [ "/bin/bash", "-c", "echo $PGPASSWORD"]
+CMD [ "/bin/sh", "-c", "echo $PGPASSWORD"]
 ```
 
 ## installation
