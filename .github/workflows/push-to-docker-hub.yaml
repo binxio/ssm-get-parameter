@@ -57,12 +57,6 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/${{ github.repository }}:${{ steps.repository.outputs.tag }}
-
-      -
-        uses: docker/tag-push-action@v3
-        with:
-          repository: binxio/ssm-get-parameter
-          src: ghcr.io/${{ github.repository }}:${{ steps.repository.outputs.tag }}
-          dst: |
-            docker.io/${{github.repository }}:${{ steps.repository.outputs.tag }}
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ steps.repository.outputs.tag }}
+            docker.io/${{ github.repository }}:${{ steps.repository.outputs.tag }}
