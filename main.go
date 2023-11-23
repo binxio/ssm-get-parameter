@@ -1,17 +1,16 @@
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-//   Licensed under the Apache License, Version 2.0 (the "License");
-//   you may not use this file except in compliance with the License.
-//   You may obtain a copy of the License at
+//	http://www.apache.org/licenses/LICENSE-2.0
 //
-//       http://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 //
-//   Unless required by applicable law or agreed to in writing, software
-//   distributed under the License is distributed on an "AS IS" BASIS,
-//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-//   See the License for the specific language governing permissions and
-//   limitations under the License.
-//
-//   Copyright 2018 Binx.io B.V.
+// Copyright 2018 Binx.io B.V.
 package main
 
 import (
@@ -25,25 +24,29 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/template"
-	"strconv"
 )
 
 var verbose bool
 
 func main() {
 	var name string
+	var export bool
 	flag.StringVar(&name, "parameter-name", "", "of the parameter (deprecated)")
 	flag.StringVar(&name, "name", "", "of the parameter")
+	flag.BoolVar(&export, "export", false, "all environment parameter references")
 	flag.BoolVar(&verbose, "verbose", false, "get debug output")
 	flag.Parse()
 	if name != "" {
 		getParameter(name)
+	} else if export {
+		exportSSMReferences()
 	} else {
 		if len(os.Args) <= 1 {
-			log.Fatalf("ERROR: expected --name or a command to run")
+			log.Fatalf("ERROR: expected --name, --export or a command to run")
 		}
 		execProcess(flag.Args())
 	}
@@ -54,7 +57,7 @@ type SSMParameterRef struct {
 	parameter_name *string            // in the parameter store
 	default_value  *string            // if one is specified
 	destination    *string            // to write the value to, otherwise ""
-    fileMode       os.FileMode        // file permissions
+	fileMode       os.FileMode        // file permissions
 	template       *template.Template // to use, defaults to '{{.}}'
 }
 
@@ -89,11 +92,11 @@ func environmentToSSMParameterReferences(environ []string) ([]SSMParameterRef, e
 			var fileMode os.FileMode
 			chmod := values.Get("chmod")
 			if chmod != "" {
-                if mode, err := strconv.ParseUint(chmod, 8, 32);  err != nil {
-                    return nil, fmt.Errorf("chmod '%s' is not valid, %s", chmod, err)
-                } else {
-                    fileMode = os.FileMode(mode)
-                }
+				if mode, err := strconv.ParseUint(chmod, 8, 32); err != nil {
+					return nil, fmt.Errorf("chmod '%s' is not valid, %s", chmod, err)
+				} else {
+					fileMode = os.FileMode(mode)
+				}
 			}
 			result = append(result, SSMParameterRef{&name, &uri.Path,
 				&defaultValue, &destination, os.FileMode(fileMode), tpl})
@@ -192,10 +195,10 @@ func writeParameterValues(refs []SSMParameterRef, env map[string]string) error {
 			}
 
 			if ref.fileMode != 0 {
-			    err := os.Chmod(*ref.destination, ref.fileMode)
-			    if err != nil {
-			        return fmt.Errorf("failed to chmod file %s to %s, %s", *ref.destination, ref.fileMode, err)
-			    }
+				err := os.Chmod(*ref.destination, ref.fileMode)
+				if err != nil {
+					return fmt.Errorf("failed to chmod file %s to %s, %s", *ref.destination, ref.fileMode, err)
+				}
 			}
 		}
 	}
@@ -210,6 +213,21 @@ func replaceDestinationReferencesWithURL(refs []SSMParameterRef, env map[string]
 	return env
 }
 
+// resolves SSM parameter references to values
+func resolveSSMParameterReferences(refs []SSMParameterRef) (map[string]string, error) {
+	newEnv, err := ssmParameterReferencesToEnvironment(refs)
+	if err != nil {
+		return nil, err
+	}
+
+	err = writeParameterValues(refs, newEnv)
+	if err != nil {
+		return nil, err
+	}
+
+	return replaceDestinationReferencesWithURL(refs, newEnv), nil
+}
+
 // execute the `cmd` with the environment set to actual values from the parameter store
 func execProcess(cmd []string) {
 	program, err := exec.LookPath(cmd[0])
@@ -221,17 +239,10 @@ func execProcess(cmd []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	newEnv, err := ssmParameterReferencesToEnvironment(refs)
+	newEnv, err := resolveSSMParameterReferences(refs)
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	err = writeParameterValues(refs, newEnv)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	newEnv = replaceDestinationReferencesWithURL(refs, newEnv)
 
 	err = syscall.Exec(program, cmd, updateEnvironment(os.Environ(), newEnv))
 	if err != nil {
@@ -257,8 +268,8 @@ func getParameter(name string) {
 // get a new AWS Session
 func getSession() *session.Session {
 	session, err := session.NewSessionWithOptions(session.Options{
-        SharedConfigState: session.SharedConfigEnable, // Must be set to enable
-    })
+		SharedConfigState: session.SharedConfigEnable, // Must be set to enable
+	})
 	if err != nil {
 		log.Fatalf("ERROR: failed to create new session %s\n", err)
 	}
@@ -269,4 +280,19 @@ func getSession() *session.Session {
 func toNameValue(envEntry string) (string, string) {
 	result := strings.SplitN(envEntry, "=", 2)
 	return result[0], result[1]
+}
+
+func exportSSMReferences() {
+	refs, err := environmentToSSMParameterReferences(os.Environ())
+	if err != nil {
+		log.Fatal(err)
+	}
+	newEnv, err := resolveSSMParameterReferences(refs)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, ref := range refs {
+		value := strings.ReplaceAll(newEnv[*ref.name], "'", "'\"'\"'")
+		fmt.Printf("%s='%s'; export %s\n", *ref.name, value, *ref.name)
+	}
 }
