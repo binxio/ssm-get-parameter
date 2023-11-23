@@ -49,6 +49,14 @@ ssm-get-parameter bash -c 'echo $PASSWORD'
 ```
 will print out the value of `/dev/mysql/root/password`.
 
+Alternatively, you can use --export as follows:
+
+```bash
+$ export PASSWORD=ssm:///password
+$ eval $(ssm-get-parameter --export)
+$ echo $PASSWORD
+```
+
 ## Dockerfile usage
 To idiomatic way to use the utility is as follows:
 ```
