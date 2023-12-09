@@ -22,6 +22,7 @@ The utility supports the following query parameters:
 If no default nor destination is specified and the parameter is not found, the utility will return an error.
 If a default is specified and the parameter is not found, the utility will use the default.
 If a destination file exists and no default is specified, the file will be read as the default value.
+The destination file may contain the ~ to designate the home directory. home directories of other users are not supported.
 
 For example:
 ```
