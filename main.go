@@ -10,7 +10,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Copyright 2018 Binx.io B.V.
+// Copyright 2018-2023 Binx.io B.V.
 package main
 
 import (
@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ssm"
-	"io/ioutil"
+	"github.com/mitchellh/go-homedir"
 	"log"
 	"net/url"
 	"os"
@@ -53,12 +53,59 @@ func main() {
 }
 
 type SSMParameterRef struct {
-	name           *string            // of the environment variable
-	parameter_name *string            // in the parameter store
-	default_value  *string            // if one is specified
-	destination    *string            // to write the value to, otherwise ""
-	fileMode       os.FileMode        // file permissions
-	template       *template.Template // to use, defaults to '{{.}}'
+	name          *string            // of the environment variable
+	parameterName *string            // in the parameter store
+	defaultValue  *string            // if one is specified
+	destination   *string            // to write the value to, otherwise ""
+	fileMode      os.FileMode        // file permissions
+	template      *template.Template // to use, defaults to '{{.}}'
+}
+
+// CreateSSMParameterRef creates a SSM parameter reference from a environment value.
+func CreateSSMParameterRef(name, value string) (result *SSMParameterRef, err error) {
+	value = os.ExpandEnv(value)
+	uri, err := url.Parse(value)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse environment variable %s, %s", name, err)
+	}
+	if uri.Host != "" {
+		return nil, fmt.Errorf("environment variable %s has an ssm: uri, but specified a host. add a /", name)
+	}
+	values, err := url.ParseQuery(uri.RawQuery)
+	if err != nil {
+		return nil, fmt.Errorf("environment variable %s has an invalid query syntax, %s", name, err)
+	}
+
+	defaultValue := values.Get("default")
+	destination, err := homedir.Expand(values.Get("destination"))
+	if err != nil {
+		return nil, err
+	}
+	var tpl *template.Template
+	if values.Get("template") != "" {
+		tpl, err = template.New("secret").Parse(values.Get("template"))
+		if err != nil {
+			return nil, fmt.Errorf("environment variable %s has an invalid template syntax, %s", name, err)
+		}
+	}
+	fileMode := os.FileMode(0)
+	chmod := values.Get("chmod")
+	if chmod != "" {
+		if mode, err := strconv.ParseUint(chmod, 8, 32); err != nil {
+			return nil, fmt.Errorf("chmod '%s' is not valid, %s", chmod, err)
+		} else {
+			fileMode = os.FileMode(mode)
+		}
+	}
+	result = &SSMParameterRef{
+		&name,
+		&uri.Path,
+		&defaultValue,
+		&destination,
+		os.FileMode(fileMode),
+		tpl}
+
+	return result, nil
 }
 
 // converts the environment variables in `environ` into a list of SSM parameter references.
@@ -67,39 +114,11 @@ func environmentToSSMParameterReferences(environ []string) ([]SSMParameterRef, e
 	for i := 0; i < len(environ); i++ {
 		name, value := toNameValue(environ[i])
 		if strings.HasPrefix(value, "ssm:") {
-			value := os.ExpandEnv(value)
-			uri, err := url.Parse(value)
+			ref, err := CreateSSMParameterRef(name, value)
 			if err != nil {
-				return nil, fmt.Errorf("failed to parse environment variable %s, %s", name, err)
+				return nil, err
 			}
-			if uri.Host != "" {
-				return nil, fmt.Errorf("environment variable %s has an ssm: uri, but specified a host. add a /.", name)
-			}
-			values, err := url.ParseQuery(uri.RawQuery)
-			if err != nil {
-				return nil, fmt.Errorf("environment variable %s has an invalid query syntax, %s", name, err)
-			}
-
-			defaultValue := values.Get("default")
-			destination := values.Get("destination")
-			var tpl *template.Template
-			if values.Get("template") != "" {
-				tpl, err = template.New("secret").Parse(values.Get("template"))
-				if err != nil {
-					return nil, fmt.Errorf("environment variable %s has an invalid template syntax, %s", name, err)
-				}
-			}
-			var fileMode os.FileMode
-			chmod := values.Get("chmod")
-			if chmod != "" {
-				if mode, err := strconv.ParseUint(chmod, 8, 32); err != nil {
-					return nil, fmt.Errorf("chmod '%s' is not valid, %s", chmod, err)
-				} else {
-					fileMode = os.FileMode(mode)
-				}
-			}
-			result = append(result, SSMParameterRef{&name, &uri.Path,
-				&defaultValue, &destination, os.FileMode(fileMode), tpl})
+			result = append(result, *ref)
 		}
 	}
 	return result, nil
@@ -107,15 +126,15 @@ func environmentToSSMParameterReferences(environ []string) ([]SSMParameterRef, e
 
 // get the default value for the parameter
 func getDefaultValue(ref *SSMParameterRef) (string, error) {
-	if *ref.default_value != "" {
+	if *ref.defaultValue != "" {
 		if ref.template != nil {
-			return formatValue(ref, ref.default_value), nil
+			return formatValue(ref, ref.defaultValue), nil
 		}
-		return *ref.default_value, nil
+		return *ref.defaultValue, nil
 	}
 
 	if *ref.destination != "" {
-		content, err := ioutil.ReadFile(*ref.destination)
+		content, err := os.ReadFile(*ref.destination)
 		if err == nil {
 			return string(content), nil
 		}
@@ -130,8 +149,8 @@ func ssmParameterReferencesToEnvironment(refs []SSMParameterRef) (map[string]str
 	withDecryption := true
 	service := ssm.New(getSession())
 	for _, ref := range refs {
-		result[*ref.name] = *ref.default_value
-		request := ssm.GetParameterInput{Name: ref.parameter_name, WithDecryption: &withDecryption}
+		result[*ref.name] = *ref.defaultValue
+		request := ssm.GetParameterInput{Name: ref.parameterName, WithDecryption: &withDecryption}
 		response, err := service.GetParameter(&request)
 		if err == nil {
 			result[*ref.name] = formatValue(&ref, response.Parameter.Value)
@@ -181,6 +200,7 @@ func updateEnvironment(env []string, newEnv map[string]string) []string {
 func writeParameterValues(refs []SSMParameterRef, env map[string]string) error {
 	for _, ref := range refs {
 		if *ref.destination != "" {
+
 			f, err := os.Create(*ref.destination)
 			if err != nil {
 				return fmt.Errorf("failed to open file %s to write to, %s", *ref.destination, err)
@@ -267,16 +287,16 @@ func getParameter(name string) {
 
 // get a new AWS Session
 func getSession() *session.Session {
-	session, err := session.NewSessionWithOptions(session.Options{
+	s, err := session.NewSessionWithOptions(session.Options{
 		SharedConfigState: session.SharedConfigEnable, // Must be set to enable
 	})
 	if err != nil {
 		log.Fatalf("ERROR: failed to create new session %s\n", err)
 	}
-	return session
+	return s
 }
 
-// get the name and variable of a environment entry in the form of <name>=<value>
+// get the name and variable of an environment entry in the form of <name>=<value>
 func toNameValue(envEntry string) (string, string) {
 	result := strings.SplitN(envEntry, "=", 2)
 	return result[0], result[1]
